@@ -27,18 +27,27 @@ const FRONTEND = `<!doctype html>
     path: location.pathname,
     navigatorLanguage: navigator.language,
     reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+    innerHeight,
     storage: Object.fromEntries(Object.entries(localStorage)),
   }) });
 
   class Shadowed extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }); } }
   customElements.define("home-assistant", class extends Shadowed {});
   customElements.define("home-assistant-main", class extends Shadowed {});
-  // Like the frontend's hui-image, which fetches a camera thumbnail only once the image is on screen.
-  new IntersectionObserver((entries, observer) => {
-    if (!entries.some((entry) => entry.isIntersecting)) return;
-    observer.disconnect();
-    document.getElementById("camera").style.background = "rgb(0, 128, 0)";
-  }).observe(document.getElementById("camera"));
+  // Like the frontend's hui-image and webrtc-camera, which load a camera only while it is on screen and
+  // take time to start. Requiring 300 ms on screen is what lets a test catch a viewport shrunk before the wait.
+  const camera = document.getElementById("camera");
+  const watchCamera = () => {
+    let loading;
+    new IntersectionObserver((entries, observer) => {
+      clearTimeout(loading);
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      loading = setTimeout(() => {
+        observer.disconnect();
+        camera.style.background = "rgb(0, 128, 0)";
+      }, 300);
+    }).observe(camera);
+  };
 
   const app = document.body.appendChild(document.createElement("home-assistant"));
   const main = app.shadowRoot.appendChild(document.createElement("home-assistant-main"));
@@ -48,7 +57,10 @@ const FRONTEND = `<!doctype html>
   // launch screen stays until the cards are in place, or until the frontend stops waiting (capped).
   const launchScreen = document.getElementById("ha-launch-screen");
   const showPanel = () => resolver.replaceChildren(document.createElement("ha-panel-lovelace"));
-  const showCards = () => (document.getElementById("content").style.background = "rgb(0, 128, 0)");
+  const showCards = () => {
+    document.getElementById("content").style.background = "rgb(0, 128, 0)";
+    watchCamera();
+  };
   setTimeout(() => resolver.appendChild(document.createElement("hass-loading-screen")), 100);
   if (location.pathname === "/lovelace/capped") {
     launchScreen.remove();
@@ -63,6 +75,7 @@ interface Report {
   path: string;
   navigatorLanguage: string;
   reducedMotion: boolean;
+  innerHeight: number;
   storage: Record<string, string>;
 }
 
@@ -193,8 +206,18 @@ describe("renderDashboard", () => {
     assert.deepEqual([width, height], [320, 1444]);
   });
 
-  it("shows content below the fold that loads only once on screen for an auto height", async () => {
-    const image = await render({ path: "tall", height: "auto" });
+  it("makes an auto-height render of a short page 800 px tall, like the default viewport", async () => {
+    const image = await render({ height: "auto" });
+    assert.equal((await inspect(image, 0, 0)).height, 800);
+  });
+
+  it("renders a fixed height in a viewport of that height plus the header", async () => {
+    await render({ path: "lovelace/fixed-viewport", height: 200 });
+    assert.equal((await waitForReport("/lovelace/fixed-viewport")).innerHeight, 256);
+  });
+
+  it("shows content below the fold that loads only while on screen, for an auto height", async () => {
+    const image = await render({ path: "tall", height: "auto", waitMs: 1_000 });
     assert.deepEqual((await inspect(image, 10, 1400)).rgb, LOADED);
   });
 
