@@ -14,10 +14,11 @@ const FRONTEND = `<!doctype html>
 <style>
   body { margin: 0 }
   #header { height: 56px; background: rgb(255, 0, 0) }
-  #content { height: 744px; background: rgb(128, 128, 128) }
+  #content { position: relative; height: 744px; background: rgb(128, 128, 128) }
   body.tall #content { height: 1444px }
+  #camera { position: absolute; bottom: 0; width: 100%; height: 100px; background: rgb(128, 128, 128) }
 </style>
-<div id="header"></div><div id="content"></div>
+<div id="ha-launch-screen"></div><div id="header"></div><div id="content"><div id="camera"></div></div>
 <script>
   const tokens = JSON.parse(localStorage.getItem("hassTokens") ?? "null");
   if (tokens?.access_token !== "${TOKEN}") location.replace("/auth/authorize?redirect_uri=x");
@@ -32,17 +33,30 @@ const FRONTEND = `<!doctype html>
   class Shadowed extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }); } }
   customElements.define("home-assistant", class extends Shadowed {});
   customElements.define("home-assistant-main", class extends Shadowed {});
+  // Like the frontend's hui-image, which fetches a camera thumbnail only once the image is on screen.
+  new IntersectionObserver((entries, observer) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    observer.disconnect();
+    document.getElementById("camera").style.background = "rgb(0, 128, 0)";
+  }).observe(document.getElementById("camera"));
+
   const app = document.body.appendChild(document.createElement("home-assistant"));
   const main = app.shadowRoot.appendChild(document.createElement("home-assistant-main"));
   const resolver = main.shadowRoot.appendChild(document.createElement("partial-panel-resolver"));
-  resolver._loading = true;
-  setTimeout(() => {
-    const panel = document.createElement("ha-panel-lovelace");
-    panel._loading = false;
-    resolver.appendChild(panel);
-    resolver._loading = false;
-    document.getElementById("content").style.background = "rgb(0, 128, 0)";
-  }, 300);
+
+  // A cold load: the panel resolver shows a loading screen until the panel's code arrives, and the
+  // launch screen stays until the cards are in place, or until the frontend stops waiting (capped).
+  const launchScreen = document.getElementById("ha-launch-screen");
+  const showPanel = () => resolver.replaceChildren(document.createElement("ha-panel-lovelace"));
+  const showCards = () => (document.getElementById("content").style.background = "rgb(0, 128, 0)");
+  setTimeout(() => resolver.appendChild(document.createElement("hass-loading-screen")), 100);
+  if (location.pathname === "/lovelace/capped") {
+    launchScreen.remove();
+    setTimeout(() => { showPanel(); showCards(); }, 500);
+  } else {
+    setTimeout(showPanel, 300);
+    setTimeout(() => { showCards(); launchScreen.remove(); }, 500);
+  }
 </script>`;
 
 interface Report {
@@ -144,6 +158,11 @@ describe("renderDashboard", () => {
     assert.deepEqual(await inspect(image, 10, 0), { width: 320, height: 200, rgb: LOADED });
   });
 
+  it("waits for the real panel when the launch screen goes first", async () => {
+    const image = await render({ path: "lovelace/capped" });
+    assert.deepEqual((await inspect(image, 10, 0)).rgb, LOADED);
+  });
+
   it("zooms the page and crops the zoomed header off", async () => {
     const image = await render({ zoom: 2, height: "auto" });
     assert.deepEqual(await inspect(image, 10, 0), { width: 320, height: 1488, rgb: LOADED });
@@ -172,6 +191,11 @@ describe("renderDashboard", () => {
     const image = await render({ path: "tall", height: "auto" });
     const { width, height } = await inspect(image, 0, 0);
     assert.deepEqual([width, height], [320, 1444]);
+  });
+
+  it("shows content below the fold that loads only once on screen for an auto height", async () => {
+    const image = await render({ path: "tall", height: "auto" });
+    assert.deepEqual((await inspect(image, 10, 1400)).rgb, LOADED);
   });
 
   it("returns a JPEG or WebP when asked", async () => {

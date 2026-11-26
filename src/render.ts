@@ -26,7 +26,9 @@ export async function renderDashboard(
 ): Promise<Buffer> {
   signal.throwIfAborted();
   const header = Math.round(HEADER_HEIGHT * request.zoom);
-  const initialHeight = request.height === "auto" ? AUTO_RENDER_HEIGHT : request.height;
+  // Some cards, such as camera images, load only once on screen, and a full-page capture never
+  // scrolls, so an auto height loads with all it may capture on screen.
+  const initialHeight = request.height === "auto" ? MAX_DIMENSION : request.height;
   const context = await browser.newContext({
     viewport: { width: request.width, height: initialHeight + header },
     colorScheme: request.dark ? "dark" : "light",
@@ -71,6 +73,10 @@ export async function renderDashboard(
       }, request.zoom);
     }
     await page.waitForTimeout(request.waitMs);
+    if (request.height === "auto") {
+      // scrollHeight never reads below the viewport height, so the page is measured in the short viewport.
+      await page.setViewportSize({ width: request.width, height: AUTO_RENDER_HEIGHT + header });
+    }
 
     const height =
       request.height === "auto"
@@ -117,18 +123,17 @@ function frontendStorage(homeAssistant: HomeAssistant, request: RenderRequest): 
   return storage;
 }
 
-// Runs in the page. Mirrors how the frontend tracks loading: the panel resolver and the panel it
-// mounted each carry `_loading` until their content is ready.
+// Runs in the page. Since 2026.8 the frontend keeps its launch screen up until the panel has rendered
+// (a dashboard: its cards are in place) or it gives up waiting after 5 s; until the panel's code has
+// loaded, the panel resolver shows `hass-loading-screen` in its place.
 function panelLoadedOrLoginShown(): boolean {
   if (location.pathname.startsWith("/auth/authorize")) {
     return true;
   }
-  type Loading = Element & { _loading?: boolean };
-  const main = document.querySelector("home-assistant")?.shadowRoot?.querySelector("home-assistant-main");
-  const resolver = main?.shadowRoot?.querySelector<Loading>("partial-panel-resolver");
-  if (!resolver || resolver._loading) {
+  if (document.getElementById("ha-launch-screen")) {
     return false;
   }
-  const panel = resolver.children[0] as Loading | undefined;
-  return panel !== undefined && !panel._loading;
+  const main = document.querySelector("home-assistant")?.shadowRoot?.querySelector("home-assistant-main");
+  const panel = main?.shadowRoot?.querySelector("partial-panel-resolver")?.children[0];
+  return panel !== undefined && panel.localName !== "hass-loading-screen";
 }

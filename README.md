@@ -47,6 +47,16 @@ access token (`hassTokens`), theme and dark mode (`selectedTheme`), language
 and nothing carries over between requests. The page is rendered 56 px taller and the top app bar
 is cropped off.
 
+The capture waits until the frontend removes its launch screen and the real panel has replaced its
+loading screen. If that has not happened after 10 s, it captures anyway and logs a warning. Home
+Assistant 2026.8 and later remove the launch screen once a dashboard's cards are in place, or after
+5 s. Older versions remove it as soon as the panel's code has loaded, before the dashboard has its
+configuration. Then the requested `wait` runs.
+
+An `auto` height loads and waits in a 4096 px tall viewport, so cards that load only once they are
+on screen, such as camera images, load below the fold too. The viewport then shrinks back to 800 px
+to measure the page, and the image covers the whole page, up to 4096 px.
+
 At most two renders run at once; further requests wait in order. A request that waits and renders
 for more than 55 s gets a 504 (ha-mcp gives up after 60 s), and a render stops when its client
 disconnects. On SIGTERM the server stops accepting connections, finishes the renders in progress
