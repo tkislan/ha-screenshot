@@ -65,6 +65,7 @@ describe("server", () => {
       const res = await response;
       assert.equal(res.status, 200);
       assert.equal(res.headers.get("content-type"), "image/png");
+      assert.equal(res.headers.get("connection"), "close");
       const [code] = await once(child, "exit", { signal: AbortSignal.timeout(15_000) });
       assert.equal(code, 0);
     } finally {

@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { chromium } from "playwright";
 import { createHandler } from "./handler.ts";
 import { renderDashboard } from "./render.ts";
@@ -41,18 +41,30 @@ const exitWithBrowser = () => {
 };
 browser.on("disconnected", exitWithBrowser);
 
-const server = createServer(
-  createHandler({
-    password,
-    render: (request, signal) => renderDashboard(browser, homeAssistant, request, signal),
-    isHealthy: () => browser.isConnected(),
-    maxConcurrentRenders: MAX_CONCURRENT_RENDERS,
-    deadlineMs: RENDER_DEADLINE_MS,
-  }),
-);
+const handle = createHandler({
+  password,
+  render: (request, signal) => renderDashboard(browser, homeAssistant, request, signal),
+  isHealthy: () => browser.isConnected(),
+  maxConcurrentRenders: MAX_CONCURRENT_RENDERS,
+  deadlineMs: RENDER_DEADLINE_MS,
+});
+let shuttingDown = false;
+const openResponses = new Set<ServerResponse>();
+const server = createServer((req, res) => {
+  openResponses.add(res);
+  res.on("close", () => openResponses.delete(res));
+  if (shuttingDown) res.setHeader("Connection", "close");
+  void handle(req, res);
+});
 server.listen(port, () => console.log(`Listening on port ${port}, rendering ${homeAssistant.origin}`));
 
+// server.close() keeps serving new requests on connections that are already open, such as the one
+// ha-mcp reuses for every viewport of a batch; Connection: close ends each of them after its response.
 process.once("SIGTERM", () => {
+  shuttingDown = true;
+  for (const res of openResponses) {
+    if (!res.headersSent) res.setHeader("Connection", "close");
+  }
   server.close(() => {
     browser.off("disconnected", exitWithBrowser);
     void browser.close().then(() => process.exit(0));
