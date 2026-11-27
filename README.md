@@ -97,3 +97,8 @@ npm test
 ```
 
 `test/render.test.ts` drives real Chromium against a stand-in for the Home Assistant frontend.
+
+After changing a `uses:` in `.github/workflows/`, run `gh actions-lock` (the
+[`github/gh-actions-lock`](https://github.com/github/gh-actions-lock) `gh` extension) and commit
+`.github/workflows/actions.lock` with it; CI fails on a stale lockfile. Renovate does this in its own
+update PRs.
