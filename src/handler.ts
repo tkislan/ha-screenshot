@@ -30,8 +30,7 @@ export function createHandler(options: HandlerOptions): (req: IncomingMessage, r
     try {
       if (pathname === "/healthz") {
         const healthy = options.isHealthy();
-        sendText(res, healthy ? 200 : 503, healthy ? "ok" : "Chromium is not running");
-        return;
+        return healthy ? sendText(res, 200, "ok") : sendText(res, 503, "Chromium is not running");
       }
       if (req.method !== "GET") {
         throw new HttpError(405, "Only GET is supported");
