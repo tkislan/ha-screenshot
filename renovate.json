@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "The verify action's verify/vX.Y.Z tags otherwise fall back to exact versioning and are never updated",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["github/gh-actions-lock"],
+      "versioning": "regex:^verify/v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    }
   ]
 }
